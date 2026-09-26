@@ -19,7 +19,8 @@ interface Probe {
 
 async function probe(f: typeof fetch, url: string): Promise<Probe> {
   try {
-    const res = await f(url);
+    // A hung connection must be reported as a probe failure, not left to stall the job.
+    const res = await f(url, { signal: AbortSignal.timeout(10_000) });
     const body: unknown = await res.json().catch(() => undefined);
     return { status: res.status, body };
   } catch (e) {

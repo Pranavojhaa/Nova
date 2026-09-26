@@ -50,6 +50,21 @@ describe('smoke', () => {
     expect(problems.length).toBeGreaterThan(0);
   });
 
+  it('gives every probe a timeout so a hung connection fails fast instead of leaving the job stuck', async () => {
+    const seenSignals: Array<AbortSignal | undefined> = [];
+    const f = ((url: string, init?: RequestInit) => {
+      seenSignals.push(init?.signal ?? undefined);
+      const path = new URL(url).pathname;
+      const r = healthy[path] as { status: number; body?: unknown };
+      return Promise.resolve(new Response(JSON.stringify(r.body ?? {}), { status: r.status }));
+    }) as typeof fetch;
+    await smoke(target, { fetch: f, attempts: 1, delayMs: 0 });
+    expect(seenSignals.length).toBeGreaterThan(0);
+    for (const signal of seenSignals) {
+      expect(signal).toBeInstanceOf(AbortSignal);
+    }
+  });
+
   it('retries until a rolling deploy becomes healthy', async () => {
     const booting: Routes = {
       '/healthz': { status: 503 },
