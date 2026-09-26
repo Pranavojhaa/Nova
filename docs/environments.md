@@ -21,39 +21,48 @@ accepts tokens from `Pranavojhaa/Nova` jobs in that environment **on the `main` 
 restrict deploys to `main`, or a WIF token request from another branch will simply fail late instead of being refused
 up front by GitHub.
 
-Set the deployment branch policy for each environment to **main only**:
+Set the deployment branch policy for each environment to **main only**, and — for **production** only — require
+Pranav as a reviewer, so nobody (including CI) can advance `promote` past the `gate` job without an explicit human
+approval. Do this in **one `PUT` per environment**: the environment `PUT` endpoint replaces the fields it's given,
+so a later `PUT` that omits `deployment_branch_policy` can silently reset the policy set by an earlier one — the
+reviewer must be set in the same call, not a second one:
 
 ```sh
 for env in staging production; do
+  reviewer_args=()
+  if [[ "$env" == production ]]; then
+    USER_ID="$(gh api users/Pranavojhaa -q .id)"
+    reviewer_args=(-F 'reviewers[][type]=User' -F "reviewers[][id]=$USER_ID")
+  fi
   gh api -X PUT "repos/Pranavojhaa/Nova/environments/$env" \
     -f 'deployment_branch_policy[protected_branches]=false' \
-    -F 'deployment_branch_policy[custom_branch_policies]=true'
+    -F 'deployment_branch_policy[custom_branch_policies]=true' \
+    "${reviewer_args[@]}"
   gh api -X POST "repos/Pranavojhaa/Nova/environments/$env/deployment-branch-policies" -f name=main
 done
 ```
 
 If the `gh api` syntax above has drifted from what your `gh` version expects, do it in the UI instead: repo →
-Settings → Environments → `<env>` → "Deployment branches and tags" → "Selected branches and tags" → add `main`.
+Settings → Environments → `<env>` → "Deployment branches and tags" → "Selected branches and tags" → add `main`; and
+for `production`, "Required reviewers" → add Pranavojhaa.
 
-For **production** only, also require Pranav as a reviewer, so nobody (including CI) can advance `promote` past the
-`gate` job without an explicit human approval:
-
-```sh
-USER_ID="$(gh api users/Pranavojhaa -q .id)"
-gh api -X PUT repos/Pranavojhaa/Nova/environments/production \
-  -F 'reviewers[][type]=User' -F "reviewers[][id]=$USER_ID"
-```
-
-Again, if that syntax doesn't match your `gh` version: Settings → Environments → `production` → "Required reviewers"
-→ add Pranavojhaa.
+Once this section is done, never issue another bare `gh api -X PUT repos/Pranavojhaa/Nova/environments/<env>` (for
+example just to create the environment before setting variables) — it re-sends the environment's configuration, and
+omitting `deployment_branch_policy` or `reviewers` from that later call can reset what this section just set. The
+environment already exists after the loop above; later steps only need `gh variable set --env <env>`.
 
 ## Bootstrap staging (once)
+
+Do the "GitHub environments (once)" section above first — it's what sets `staging`'s deployment branch policy, and
+the step below only adds variables to an environment that must already exist with that policy in place.
 
 ```sh
 export PROJECT=nova-staging-<suffix>      # globally unique
 export REGION=asia-south1
 gcloud projects create "$PROJECT"
 gcloud billing projects link "$PROJECT" --billing-account=<BILLING_ACCOUNT_ID>
+# The budget flags below weren't executed against a real billing account here; if this errors, check
+# `gcloud billing budgets create --help` for the current flag names.
 gcloud billing budgets create --billing-account=<BILLING_ACCOUNT_ID> \
   --display-name="nova-staging" --budget-amount=100USD \
   --filter-projects="projects/$PROJECT" \
@@ -83,11 +92,11 @@ openssl rand -base64 32 | tr -d '\n' | gcloud secrets versions add NOVA_MASTER_K
 unset DB_PASSWORD
 ```
 
-GitHub (repo → Settings → Environments → **staging**, deployment branch policy set above), variables from
-`terraform output`:
+GitHub (repo → Settings → Environments → **staging**, already created with its deployment branch policy set in the
+section above — don't re-`PUT` the environment here: a `PUT` with no `deployment_branch_policy` body can reset that
+policy back to "all branches"), variables from `terraform output`:
 
 ```sh
-gh api -X PUT repos/Pranavojhaa/Nova/environments/staging >/dev/null
 for kv in \
   "GCP_PROJECT_ID=$PROJECT" "GCP_REGION=$REGION" \
   "REGISTRY=$(terraform output -raw registry)" \
