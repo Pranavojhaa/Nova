@@ -66,6 +66,80 @@ describe('config', () => {
     expect(message).toContain('NOVA_MASTER_KEY');
     expect(message).not.toContain(secret);
   });
+
+  const base = { DATABASE_URL: 'postgres://nova@localhost:5432/nova', NOVA_MASTER_KEY: key() };
+  const messageOf = (env: Record<string, string>): string => {
+    try {
+      loadConfig(env);
+      return '';
+    } catch (e) {
+      return (e as Error).message;
+    }
+  };
+
+  it('defaults to the dev environment and a local release', () => {
+    const c = loadConfig({ ...base, NOVA_RECIPIENT_ALLOWLIST: 'me@example.com' });
+    expect(c.NOVA_ENV).toBe('dev');
+    expect(c.NOVA_RELEASE).toBe('local');
+    expect(c.HEALTH_PORT).toBeUndefined();
+  });
+
+  it('requires a recipient allowlist outside prod', () => {
+    expect(messageOf({ ...base })).toContain('NOVA_RECIPIENT_ALLOWLIST');
+    expect(messageOf({ ...base, NOVA_ENV: 'staging' })).toContain('NOVA_RECIPIENT_ALLOWLIST');
+  });
+
+  it('treats an empty allowlist as a configuration error, not as "no restriction"', () => {
+    expect(messageOf({ ...base, NOVA_ENV: 'staging', NOVA_RECIPIENT_ALLOWLIST: '' })).toContain(
+      'NOVA_RECIPIENT_ALLOWLIST',
+    );
+    expect(messageOf({ ...base, NOVA_ENV: 'staging', NOVA_RECIPIENT_ALLOWLIST: ' , ' })).toContain(
+      'NOVA_RECIPIENT_ALLOWLIST',
+    );
+  });
+
+  it('rejects a malformed allowlist entry', () => {
+    expect(
+      messageOf({ ...base, NOVA_ENV: 'staging', NOVA_RECIPIENT_ALLOWLIST: 'me@example.com,nope' }),
+    ).toContain('NOVA_RECIPIENT_ALLOWLIST');
+  });
+
+  it('normalises allowlist entries to trimmed lowercase', () => {
+    const c = loadConfig({
+      ...base,
+      NOVA_ENV: 'staging',
+      NOVA_RECIPIENT_ALLOWLIST: ' Me@Example.com , you@example.com',
+    });
+    expect(c.NOVA_RECIPIENT_ALLOWLIST).toEqual(['me@example.com', 'you@example.com']);
+  });
+
+  it('allows prod without an allowlist, and with one', () => {
+    expect(loadConfig({ ...base, NOVA_ENV: 'prod' }).NOVA_RECIPIENT_ALLOWLIST).toBeUndefined();
+    expect(
+      loadConfig({ ...base, NOVA_ENV: 'prod', NOVA_RECIPIENT_ALLOWLIST: 'me@example.com' })
+        .NOVA_RECIPIENT_ALLOWLIST,
+    ).toEqual(['me@example.com']);
+  });
+
+  it('accepts the Cloud SQL unix-socket database URL used on Cloud Run', () => {
+    const c = loadConfig({
+      ...base,
+      NOVA_ENV: 'staging',
+      NOVA_RECIPIENT_ALLOWLIST: 'me@example.com',
+      DATABASE_URL:
+        'postgresql://nova:p%40ss@localhost/nova?host=/cloudsql/proj:asia-south1:nova-staging',
+      NOVA_RELEASE: 'abc123',
+      HEALTH_PORT: '8080',
+    });
+    expect(c.NOVA_RELEASE).toBe('abc123');
+    expect(c.HEALTH_PORT).toBe(8080);
+  });
+
+  it('rejects an unknown environment name', () => {
+    expect(
+      messageOf({ ...base, NOVA_ENV: 'production', NOVA_RECIPIENT_ALLOWLIST: 'a@b.co' }),
+    ).toContain('NOVA_ENV');
+  });
 });
 
 describe('logger', () => {
