@@ -13,9 +13,9 @@ These exist from M0 because Gmail's restricted scopes require Google OAuth verif
 
 ## Google OAuth
 
-- Separate Google Cloud projects (and OAuth clients) for development/staging and production. Never share a client between them.
+- One Google Cloud project, OAuth client and `NOVA_MASTER_KEY` per environment (dev, staging, prod). Never share a client or key between them; prod data is never copied into staging or dev.
 - Request the minimum scopes for the capability being built, incrementally. Planned: `gmail.send`, `gmail.readonly` (or `gmail.metadata` where enough), `calendar.events`, `calendar.freebusy`.
-- Test users on the dev project until verification.
+- Test users on the dev and staging projects; only the prod project goes through verification.
 
 ## Data minimization, export, deletion
 
@@ -33,3 +33,11 @@ These exist from M0 because Gmail's restricted scopes require Google OAuth verif
 ## Audit
 
 `actions` + `action_transitions` + `receipts` + `authorization_envelopes` answer, for every external effect: what was sent (content hash), to whom, under which envelope version and permit, how we know it happened, and whether an independent re-read verified it.
+
+## Deployment
+
+- GitHub Actions authenticates to GCP only through Workload Identity Federation, restricted to `Pranavojhaa/Nova` jobs in the matching GitHub environment. No service-account key files exist.
+- Secret values (`DATABASE_URL`, `NOVA_MASTER_KEY`) are written with `gcloud` and never pass through Terraform state or CI logs.
+- Cloud SQL has no authorized networks; only the IAM-checked Cloud SQL connector reaches it.
+- Outside prod, `NOVA_RECIPIENT_ALLOWLIST` is required and enforced by policy as a hard deny at proposal and before dispatch, so pre-release builds cannot contact real people.
+- Residual risk: whoever can get code deployed can indirectly read secret values, since that code runs as the runtime service account and can exfiltrate anything it can read. This is inherent to continuous deployment, not specific to Nova. Mitigated, not eliminated, by GitHub environment protection (deploys restricted to `main`, a required reviewer on `production`) and by Workload Identity Federation being pinned to one repository, one GitHub environment and one branch.

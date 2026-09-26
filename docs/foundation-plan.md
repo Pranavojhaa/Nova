@@ -506,3 +506,13 @@ Pranav's answers to section 10, and the design changes they imply. Where this se
 **Google as the first provider, not the boundary.** Capabilities are provider-agnostic interfaces (`email.send`, `calendar.create_event`); Gmail and Google Calendar are adapters behind a `connections` abstraction. Separate Google Cloud OAuth projects for dev/staging and production. Verification-ready from day one: minimum scopes, encrypted tokens, data minimization (store message ids and extracted facts, not whole mailboxes), user data export and deletion, audit trail, explicit authorization, prompt-injection controls.
 
 **M0 scope (in progress).** Toolchain, repository layout, migration strategy, module boundaries and interfaces, worker foundation, test infrastructure, CI, secret-handling conventions, and the Goal / Task / Capability / Action / Receipt / Envelope model with the execution state machine proven against a fake capability. No Gmail or Calendar code.
+
+---
+
+## 12. Amendment (2026-09-27): environments, test levels and the prod gate
+
+Spec: `docs/superpowers/specs/2026-09-27-environments-and-prod-gate-design.md`. Where it conflicts with §7's build order, it wins.
+
+- **M0.5 Environments** is inserted before M1: config identity, a non-prod recipient allowlist, the container image, Terraform, staging auto-deploy with smoke tests, and a gated promote path. Prod is defined but not provisioned.
+- Each milestone adds its test level: contract tests (M1), E2E (M2), crash/recovery (M3), scenario evals (M4).
+- **M5 becomes the prod gate:** prod is provisioned and first deployed only when `docs/prod-readiness.md` is fully checked.
