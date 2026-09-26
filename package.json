@@ -1,0 +1,50 @@
+{
+  "name": "nova",
+  "version": "0.0.0",
+  "description": "Nova: a persistent personal delegation agent",
+  "scripts": {
+    "dev:api": "tsx watch src/entrypoints/api.ts",
+    "dev:worker": "tsx watch src/entrypoints/worker.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start:api": "node dist/entrypoints/api.js",
+    "start:worker": "node dist/entrypoints/worker.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . && depcruise src --config .dependency-cruiser.cjs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/entrypoints/migrate.ts",
+    "db:check-drift": "drizzle-kit generate && git diff --exit-code -- drizzle && test -z \"\"",
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "dependencies": {
+    "drizzle-orm": "^0.45.3",
+    "fastify": "^5.12.5",
+    "graphile-worker": "^0.18.0",
+    "pg": "^8.23.0",
+    "pino": "^10.3.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.3",
+    "@types/pg": "^8.23.1",
+    "dependency-cruiser": "^18.4.0",
+    "drizzle-kit": "^0.31.11",
+    "eslint": "^10.11.0",
+    "prettier": "^3.9.9",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.70.1",
+    "vitest": "^5.0.2"
+  },
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  }
+}
