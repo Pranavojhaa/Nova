@@ -6,6 +6,7 @@ import type { Logger } from '../platform/logger.js';
 export interface ApiDeps {
   db: Db;
   logger: Logger;
+  release: { env: string; release: string };
 }
 
 /**
@@ -16,6 +17,8 @@ export function buildServer(deps: ApiDeps) {
   const app = Fastify({ loggerInstance: deps.logger });
 
   app.get('/healthz', () => ({ status: 'ok' }));
+
+  app.get('/version', () => deps.release);
 
   app.get('/readyz', async (_req, reply) => {
     try {

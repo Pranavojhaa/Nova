@@ -7,7 +7,10 @@ import { CapabilityRegistry } from '../modules/capabilities/index.js';
 import { ACTION_CRONTAB, actionJobHandlers } from '../modules/actions/index.js';
 
 const config = loadConfig();
-const logger = createLogger(config.LOG_LEVEL);
+const logger = createLogger(config.LOG_LEVEL).child({
+  env: config.NOVA_ENV,
+  release: config.NOVA_RELEASE,
+});
 const database = createDatabase(config.DATABASE_URL);
 
 // Real capabilities (Gmail, Google Calendar) are registered here from M1 on.

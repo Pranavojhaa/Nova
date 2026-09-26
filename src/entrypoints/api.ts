@@ -4,9 +4,16 @@ import { createDatabase } from '../platform/db/client.js';
 import { buildServer } from '../api/server.js';
 
 const config = loadConfig();
-const logger = createLogger(config.LOG_LEVEL);
+const logger = createLogger(config.LOG_LEVEL).child({
+  env: config.NOVA_ENV,
+  release: config.NOVA_RELEASE,
+});
 const database = createDatabase(config.DATABASE_URL);
-const app = buildServer({ db: database.db, logger });
+const app = buildServer({
+  db: database.db,
+  logger,
+  release: { env: config.NOVA_ENV, release: config.NOVA_RELEASE },
+});
 
 const shutdown = async () => {
   await app.close();
