@@ -28,6 +28,8 @@ export interface ActionDeps {
   clock: Clock;
   registry: CapabilityRegistry;
   logger: Logger;
+  /** Non-prod only: see PolicyInput.recipientAllowlist. Required so every caller decides explicitly. */
+  recipientAllowlist: ReadonlySet<string> | undefined;
   limits?: Partial<ActionLimits>;
 }
 
@@ -92,7 +94,7 @@ async function mustTransition(...args: Parameters<typeof transition>): Promise<v
 
 async function evaluate(
   db: DbOrTx,
-  clock: Clock,
+  deps: Pick<ActionDeps, 'clock' | 'recipientAllowlist'>,
   capability: AnyCapability,
   input: unknown,
   goalId: string,
@@ -129,7 +131,8 @@ async function evaluate(
     },
     envelope,
     permitUsage,
-    now: clock.now(),
+    now: deps.clock.now(),
+    recipientAllowlist: deps.recipientAllowlist,
   });
 }
 
@@ -167,7 +170,7 @@ export async function proposeAction(deps: ActionDeps, p: ProposeInput): Promise<
   const hash = contentHash(parsed.data);
 
   return deps.db.transaction(async (tx) => {
-    const decision = await evaluate(tx, deps.clock, capability, parsed.data, p.goalId, {});
+    const decision = await evaluate(tx, deps, capability, parsed.data, p.goalId, {});
     const status: ActionStatus =
       decision.decision === 'allow'
         ? 'authorized'
@@ -234,7 +237,7 @@ export async function reevaluateAwaitingActions(
     const capability = deps.registry.get(a.capability);
     if (!capability) continue;
     await deps.db.transaction(async (tx) => {
-      const decision = await evaluate(tx, deps.clock, capability, a.input, a.goalId, {
+      const decision = await evaluate(tx, deps, capability, a.input, a.goalId, {
         excludeActionId: a.id,
       });
       if (decision.decision === 'allow') {
@@ -338,7 +341,7 @@ export async function dispatchAction(deps: ActionDeps, actionId: string): Promis
         return 'failed_permanent';
       }
 
-      const decision = await evaluate(tx, clock, capability, a.input, a.goalId, {
+      const decision = await evaluate(tx, deps, capability, a.input, a.goalId, {
         excludeActionId: a.id,
         lockEnvelope: true,
       });

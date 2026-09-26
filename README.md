@@ -3,14 +3,14 @@
 A persistent personal delegation agent. You tell Nova what you want taken care of; it owns the outcome:
 plans, acts through authorized capabilities, waits for the world to respond, verifies, and tells you when it's done.
 
-**Status:** M0 foundation. No provider integrations yet. See `docs/foundation-plan.md` for the plan and milestones.
+**Status:** M0.5, environments. No provider integrations yet. See docs/foundation-plan.md for the plan and docs/environments.md for deploys.
 
 ## Run locally
 
 ```sh
 pnpm install
 docker compose up -d                 # Postgres 16 with nova_dev and nova_test
-cp .env.example .env                 # then set NOVA_MASTER_KEY (see the file)
+cp .env.example .env                 # then set NOVA_MASTER_KEY and NOVA_RECIPIENT_ALLOWLIST
 pnpm db:migrate
 pnpm dev:api                         # http://localhost:3000/healthz
 pnpm dev:worker
@@ -25,6 +25,7 @@ src/modules/      domain modules, each with index.ts (public API) and schema.ts 
 src/api/          HTTP surface (thin)
 src/entrypoints/  api, worker, migrate
 drizzle/          generated, committed SQL migrations
+infra/            Terraform for staging and prod (see docs/environments.md)
 tests/            integration tests, fakes, helpers
 docs/             architecture, security, ADRs, foundation plan
 ```

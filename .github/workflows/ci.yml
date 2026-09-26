@@ -5,9 +5,15 @@ on:
   push:
     branches: [main]
 
+# Default to read-only; jobs that need more (deploy-staging: id-token for WIF) declare their own
+# `permissions`, which override this at the job level.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Superseded PR runs are cancelled; runs on main (which deploy) always finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
@@ -48,6 +54,49 @@ jobs:
       - name: Build
         run: pnpm build
 
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: nova
+          POSTGRES_PASSWORD: nova
+          POSTGRES_DB: nova_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U nova" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build image
+        run: docker build --build-arg NOVA_RELEASE=${{ github.sha }} -t nova:ci .
+      - name: Migrate, boot API and worker, smoke-test
+        run: scripts/ci-image-smoke.sh nova:ci ${{ github.sha }}
+
+  infra:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: Terraform format
+        run: terraform -chdir=infra/terraform fmt -check -recursive
+      - name: Terraform validate (every environment)
+        run: |
+          for env in staging prod; do
+            terraform -chdir=infra/terraform/envs/$env init -backend=false -input=false
+            terraform -chdir=infra/terraform/envs/$env validate
+          done
+      - name: Shell scripts
+        run: shellcheck scripts/*.sh
+
   secrets:
     runs-on: ubuntu-latest
     steps:
@@ -57,3 +106,56 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  deploy-staging:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.STAGING_DEPLOY_ENABLED == 'true'
+    needs: [check, secrets, image, infra]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      REGISTRY: ${{ vars.REGISTRY }}
+      SQL_CONNECTION: ${{ vars.SQL_CONNECTION }}
+      RUNTIME_SA: ${{ vars.RUNTIME_SA }}
+      NOVA_RECIPIENT_ALLOWLIST: ${{ vars.NOVA_RECIPIENT_ALLOWLIST }}
+      WORKER_MIN_INSTANCES: ${{ vars.WORKER_MIN_INSTANCES }}
+      NOVA_ENV: staging
+      SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Build and push image
+        run: |
+          gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+          docker build --build-arg "NOVA_RELEASE=${SHA}" -t "${REGISTRY}/nova:${SHA}" .
+          docker push "${REGISTRY}/nova:${SHA}"
+          DIGEST_REF="$(docker inspect --format '{{index .RepoDigests 0}}' "${REGISTRY}/nova:${SHA}")"
+          [[ "$DIGEST_REF" == *@sha256:* ]] || { echo "unexpected digest reference: ${DIGEST_REF:-<empty>}"; exit 1; }
+          echo "IMAGE=${DIGEST_REF}" >>"$GITHUB_ENV"
+      - name: Deploy
+        id: deploy
+        run: scripts/deploy.sh
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Smoke test
+        env:
+          API_URL: ${{ steps.deploy.outputs.api_url }}
+        run: pnpm smoke --api "$API_URL" --release "${SHA}"
+      - name: Mark digest verified (only verified digests can be promoted)
+        run: gcloud artifacts docker tags add "${IMAGE}" "${REGISTRY}/nova:verified-${SHA}" --quiet
