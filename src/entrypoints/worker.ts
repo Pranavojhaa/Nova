@@ -16,10 +16,23 @@ const registry = new CapabilityRegistry([]);
 const runner = await startWorker({
   pgPool: database.pool,
   logger,
-  handlers: [...actionJobHandlers({ db: database.db, clock: systemClock, registry, logger })],
+  handlers: [
+    ...actionJobHandlers({
+      db: database.db,
+      clock: systemClock,
+      registry,
+      logger,
+      recipientAllowlist: config.NOVA_RECIPIENT_ALLOWLIST
+        ? new Set(config.NOVA_RECIPIENT_ALLOWLIST)
+        : undefined,
+    }),
+  ],
   crontab: ACTION_CRONTAB,
 });
-logger.info('worker started');
+logger.info(
+  { recipientAllowlistSize: config.NOVA_RECIPIENT_ALLOWLIST?.length ?? 'unrestricted' },
+  'worker started',
+);
 
 await runner.promise;
 await database.close();

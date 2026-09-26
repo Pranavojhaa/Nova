@@ -306,3 +306,57 @@ describe('audit', () => {
     expect(rows[0]).toEqual({ n: 0 });
   });
 });
+
+describe('non-prod recipient allowlist', () => {
+  const ONLY_ME = new Set(['pranav@example.com']);
+
+  it('denies at proposal a pinned, authorized recipient who is not allowlisted', async () => {
+    const w = await seedWorld(database);
+    await w.authorize();
+    const { action } = await proposeAction(
+      { ...w.deps, recipientAllowlist: ONLY_ME },
+      {
+        userId: w.user.id,
+        goalId: w.goal.id,
+        capability: 'email.send',
+        input: w.emailInput(),
+        semanticKey: 'initial-email',
+      },
+    );
+    expect(action.status).toBe('denied');
+    expect(action.policyReason).toBe('recipient_not_allowlisted');
+    expect(await queuedJobs(database)).toEqual([]);
+    expect(w.email.sent).toHaveLength(0);
+  });
+
+  it('cancels at dispatch an action authorized before the allowlist applied', async () => {
+    const w = await seedWorld(database);
+    await w.authorize();
+    const { action } = await propose(w);
+    expect(action.status).toBe('authorized');
+
+    expect(await dispatchAction({ ...w.deps, recipientAllowlist: ONLY_ME }, action.id)).toBe(
+      'blocked_by_policy',
+    );
+    const after = await getAction(database.db, action.id);
+    expect(after?.status).toBe('cancelled');
+    expect(after?.policyReason).toBe('recipient_not_allowlisted');
+    expect(w.email.sent).toHaveLength(0);
+  });
+
+  it('sends normally to an allowlisted recipient', async () => {
+    const w = await seedWorld(database);
+    await w.authorize();
+    const deps = { ...w.deps, recipientAllowlist: new Set(['rahul@example.com']) };
+    const { action } = await proposeAction(deps, {
+      userId: w.user.id,
+      goalId: w.goal.id,
+      capability: 'email.send',
+      input: w.emailInput(),
+      semanticKey: 'initial-email',
+    });
+    expect(action.status).toBe('authorized');
+    expect(await dispatchAction(deps, action.id)).toBe('succeeded');
+    expect(w.email.sent).toHaveLength(1);
+  });
+});
