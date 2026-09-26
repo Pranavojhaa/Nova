@@ -7,7 +7,8 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Superseded PR runs are cancelled; runs on main (which deploy) always finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
@@ -47,6 +48,32 @@ jobs:
         run: pnpm test:integration
       - name: Build
         run: pnpm build
+
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: nova
+          POSTGRES_PASSWORD: nova
+          POSTGRES_DB: nova_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U nova" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build image
+        run: docker build --build-arg NOVA_RELEASE=${{ github.sha }} -t nova:ci .
+      - name: Migrate, boot API and worker, smoke-test
+        run: scripts/ci-image-smoke.sh nova:ci ${{ github.sha }}
 
   secrets:
     runs-on: ubuntu-latest
