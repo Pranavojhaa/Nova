@@ -28,8 +28,8 @@ export interface ActionDeps {
   clock: Clock;
   registry: CapabilityRegistry;
   logger: Logger;
-  /** Non-prod only: see PolicyInput.recipientAllowlist. */
-  recipientAllowlist?: ReadonlySet<string> | undefined;
+  /** Non-prod only: see PolicyInput.recipientAllowlist. Required so every caller decides explicitly. */
+  recipientAllowlist: ReadonlySet<string> | undefined;
   limits?: Partial<ActionLimits>;
 }
 

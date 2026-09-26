@@ -344,6 +344,24 @@ describe('non-prod recipient allowlist', () => {
     expect(w.email.sent).toHaveLength(0);
   });
 
+  it('denies at re-evaluation an action released by an envelope approval once an allowlist applies', async () => {
+    const w = await seedWorld(database);
+    // Proposed with no allowlist in effect: the recipient isn't authorized yet, so it waits.
+    const { action } = await propose(w);
+    expect(action.status).toBe('awaiting_authorization');
+
+    await w.authorize();
+    // Re-evaluating now applies an allowlist that excludes the (goal-pinned) recipient.
+    const deps = { ...w.deps, recipientAllowlist: ONLY_ME };
+    expect(await reevaluateAwaitingActions(deps, w.goal.id)).toHaveLength(0);
+
+    const after = await getAction(database.db, action.id);
+    expect(after?.status).toBe('denied');
+    expect(after?.policyReason).toBe('recipient_not_allowlisted');
+    expect(await queuedJobs(database)).toEqual([]);
+    expect(w.email.sent).toHaveLength(0);
+  });
+
   it('sends normally to an allowlisted recipient', async () => {
     const w = await seedWorld(database);
     await w.authorize();

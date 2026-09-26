@@ -24,6 +24,7 @@ export async function seedWorld(database: Database) {
     clock,
     registry: new CapabilityRegistry([email]),
     logger: createLogger('silent'),
+    recipientAllowlist: undefined,
   };
   const user = await createUser(database.db, {
     email: 'pranav@example.com',
