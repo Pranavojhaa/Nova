@@ -101,3 +101,52 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  deploy-staging:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.STAGING_DEPLOY_ENABLED == 'true'
+    needs: [check, secrets, image, infra]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      REGISTRY: ${{ vars.REGISTRY }}
+      SQL_CONNECTION: ${{ vars.SQL_CONNECTION }}
+      RUNTIME_SA: ${{ vars.RUNTIME_SA }}
+      NOVA_RECIPIENT_ALLOWLIST: ${{ vars.NOVA_RECIPIENT_ALLOWLIST }}
+      WORKER_MIN_INSTANCES: ${{ vars.WORKER_MIN_INSTANCES }}
+      NOVA_ENV: staging
+      SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Build and push image
+        run: |
+          gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+          docker build --build-arg "NOVA_RELEASE=${SHA}" -t "${REGISTRY}/nova:${SHA}" .
+          docker push "${REGISTRY}/nova:${SHA}"
+          echo "IMAGE=$(docker inspect --format '{{index .RepoDigests 0}}' "${REGISTRY}/nova:${SHA}")" >>"$GITHUB_ENV"
+      - name: Deploy
+        id: deploy
+        run: scripts/deploy.sh
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Smoke test
+        run: pnpm smoke --api "${{ steps.deploy.outputs.api_url }}" --release "${SHA}"
+      - name: Mark digest verified (only verified digests can be promoted)
+        run: gcloud artifacts docker tags add "${IMAGE}" "${REGISTRY}/nova:verified-${SHA}" --quiet
