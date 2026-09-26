@@ -5,6 +5,7 @@ coverage
 .github
 .env
 .env.*
+gha-creds-*.json
 docs
 tests
 infra

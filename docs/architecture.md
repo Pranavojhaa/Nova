@@ -39,4 +39,4 @@ Crash recovery: a dispatch job that finds its action already `dispatching` moves
 
 ## Authority
 
-`evaluatePolicy` order: closed goal → deny; destructive → deny (v0); any external target not a goal participant → deny; read/draft → allow; write_self with no targets → allow; otherwise an active, unexpired envelope must contain a permit for this capability whose recipients cover every target, whose capability-specific constraints hold, and which has uses left.
+`evaluatePolicy` order: closed goal → deny; destructive → deny (v0); any external target not a goal participant → deny; any external target outside the non-prod recipient allowlist → deny; read/draft → allow; write_self with no targets → allow; otherwise an active, unexpired envelope must contain a permit for this capability whose recipients cover every target, whose capability-specific constraints hold, and which has uses left.

@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
 
+# Default to read-only; jobs that need more (deploy-staging: id-token for WIF) declare their own
+# `permissions`, which override this at the job level.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   # Superseded PR runs are cancelled; runs on main (which deploy) always finish.

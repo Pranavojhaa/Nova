@@ -35,7 +35,7 @@ for env in staging production; do
     reviewer_args=(-F 'reviewers[][type]=User' -F "reviewers[][id]=$USER_ID")
   fi
   gh api -X PUT "repos/Pranavojhaa/Nova/environments/$env" \
-    -f 'deployment_branch_policy[protected_branches]=false' \
+    -F 'deployment_branch_policy[protected_branches]=false' \
     -F 'deployment_branch_policy[custom_branch_policies]=true' \
     "${reviewer_args[@]}"
   gh api -X POST "repos/Pranavojhaa/Nova/environments/$env/deployment-branch-policies" -f name=main
@@ -61,6 +61,10 @@ export PROJECT=nova-staging-<suffix>      # globally unique
 export REGION=asia-south1
 gcloud projects create "$PROJECT"
 gcloud billing projects link "$PROJECT" --billing-account=<BILLING_ACCOUNT_ID>
+# `gcloud auth application-default login` (done in "Tools (once)" above) ran before this project
+# existed, so Application Default Credentials have no quota project yet; set it now that $PROJECT
+# exists and is linked to billing, or later ADC calls fail with a quota-project error.
+gcloud auth application-default set-quota-project "$PROJECT"
 # The budget flags below weren't executed against a real billing account here; if this errors, check
 # `gcloud billing budgets create --help` for the current flag names.
 gcloud billing budgets create --billing-account=<BILLING_ACCOUNT_ID> \
@@ -138,6 +142,12 @@ If the **prod** smoke test fails after a promote, the new revision is already se
 switches traffic to the new revision as part of `gcloud run deploy`, and the smoke test only runs after. Roll back
 immediately with the traffic commands above, run for **both** services (`nova-api` and `nova-worker`) against the
 prod project, pointing at the previous known-good revision.
+
+`update-traffic --to-revisions <prev>=100` pins traffic to that revision. The _next_ deploy restores normal routing:
+`scripts/deploy.sh` runs `gcloud run services update-traffic <svc> --to-latest` right after each `gcloud run deploy`,
+so the new revision it just created gets 100% of traffic again. To restore latest-routing manually without deploying
+(for example, after a rollback you no longer need), run
+`gcloud run services update-traffic <svc> --to-latest --region asia-south1 --project "$PROJECT"` for the service.
 
 ## Migrations rule
 
