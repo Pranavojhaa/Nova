@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import type { AddressInfo } from 'node:net';
 import { Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { SecretBox } from './crypto.js';
@@ -6,6 +7,7 @@ import { canonicalJson, contentHash } from './hashing.js';
 import { uuidv7 } from './ids.js';
 import { loadConfig } from './config.js';
 import { createLogger } from './logger.js';
+import { startHealthServer } from './health.js';
 
 const key = () => randomBytes(32).toString('base64');
 
@@ -154,5 +156,20 @@ describe('logger', () => {
     createLogger('info', sink).info({ connection: { refreshToken: 'super-secret' } }, 'x');
     expect(out).not.toContain('super-secret');
     expect(out).toContain('[redacted]');
+  });
+});
+
+describe('health server', () => {
+  it('answers /healthz with its identity and 404s everything else', async () => {
+    const server = await startHealthServer(0, { env: 'staging', release: 'abc123' });
+    const { port } = server.address() as AddressInfo;
+    try {
+      const ok = await fetch(`http://127.0.0.1:${port}/healthz`);
+      expect(ok.status).toBe(200);
+      expect(await ok.json()).toEqual({ status: 'ok', env: 'staging', release: 'abc123' });
+      expect((await fetch(`http://127.0.0.1:${port}/other`)).status).toBe(404);
+    } finally {
+      server.close();
+    }
   });
 });
