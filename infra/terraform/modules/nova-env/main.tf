@@ -10,6 +10,7 @@ terraform {
 locals {
   services = [
     "artifactregistry.googleapis.com",
+    "cloudresourcemanager.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
     "run.googleapis.com",
@@ -49,11 +50,12 @@ resource "google_sql_database_instance" "main" {
   deletion_protection = var.db_deletion_protection
 
   settings {
-    tier              = var.db_tier
-    edition           = "ENTERPRISE"
-    availability_type = "ZONAL"
-    disk_size         = 10
-    disk_autoresize   = true
+    tier                        = var.db_tier
+    edition                     = "ENTERPRISE"
+    availability_type           = "ZONAL"
+    disk_size                   = 10
+    disk_autoresize             = true
+    deletion_protection_enabled = var.db_deletion_protection
 
     # Public IP with no authorized networks: reachable only through the IAM-checked Cloud SQL connector.
     ip_configuration {
@@ -94,6 +96,7 @@ resource "google_service_account" "runtime" {
   project      = var.project_id
   account_id   = "nova-runtime"
   display_name = "Nova API, worker and migrations (${var.env})"
+  depends_on   = [google_project_service.enabled]
 }
 
 resource "google_project_iam_member" "runtime_sql" {
@@ -116,6 +119,7 @@ resource "google_service_account" "deployer" {
   project      = var.project_id
   account_id   = "nova-deployer"
   display_name = "GitHub Actions deployer (${var.env})"
+  depends_on   = [google_project_service.enabled]
 }
 
 resource "google_iam_workload_identity_pool" "github" {
@@ -134,8 +138,9 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     "google.subject"        = "assertion.sub"
     "attribute.repository"  = "assertion.repository"
     "attribute.environment" = "assertion.environment"
+    "attribute.ref"         = "assertion.ref"
   }
-  attribute_condition = "assertion.repository == \"${var.github_repo}\" && assertion.environment == \"${var.github_environment}\""
+  attribute_condition = "assertion.repository == \"${var.github_repo}\" && assertion.environment == \"${var.github_environment}\" && assertion.ref == \"refs/heads/main\""
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
   }
