@@ -31,6 +31,10 @@ gcloud run deploy nova-worker "${COMMON[@]}" "${RUNTIME[@]}" \
   --no-allow-unauthenticated --ingress internal \
   --no-cpu-throttling --cpu 1 --memory 512Mi \
   --min-instances "$WORKER_MIN" --max-instances 1
+# `gcloud run deploy` already routes 100% of traffic to the new revision, but a prior manual
+# rollback (`update-traffic --to-revisions <prev>=100`) pins traffic: without this, the next
+# deploy's revision would get 0% traffic and this service would silently keep serving the old one.
+gcloud run services update-traffic nova-worker "${COMMON[@]}" --to-latest
 
 echo "==> api"
 gcloud run deploy nova-api "${COMMON[@]}" "${RUNTIME[@]}" \
@@ -38,6 +42,7 @@ gcloud run deploy nova-api "${COMMON[@]}" "${RUNTIME[@]}" \
   --set-env-vars "$ENV_VARS" --port 3000 \
   --allow-unauthenticated --cpu 1 --memory 512Mi \
   --min-instances 0 --max-instances 3
+gcloud run services update-traffic nova-api "${COMMON[@]}" --to-latest
 
 API_URL="$(gcloud run services describe nova-api "${COMMON[@]}" --format 'value(status.url)')"
 echo "api_url=${API_URL}"

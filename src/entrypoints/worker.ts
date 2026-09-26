@@ -17,13 +17,6 @@ const database = createDatabase(config.DATABASE_URL);
 // Real capabilities (Gmail, Google Calendar) are registered here from M1 on.
 const registry = new CapabilityRegistry([]);
 
-const health = config.HEALTH_PORT
-  ? await startHealthServer(config.HEALTH_PORT, {
-      env: config.NOVA_ENV,
-      release: config.NOVA_RELEASE,
-    })
-  : undefined;
-
 const runner = await startWorker({
   pgPool: database.pool,
   logger,
@@ -40,6 +33,17 @@ const runner = await startWorker({
   ],
   crontab: ACTION_CRONTAB,
 });
+
+// Cloud Run's startup probe hits this port: it must only pass once the job runner is actually
+// running. Starting the health server before `startWorker` resolved let a worker that throws at
+// boot still get a Ready revision, so staging would smoke-tag the digest and prod would receive
+// a crash-looping worker.
+const health = config.HEALTH_PORT
+  ? await startHealthServer(config.HEALTH_PORT, {
+      env: config.NOVA_ENV,
+      release: config.NOVA_RELEASE,
+    })
+  : undefined;
 logger.info(
   { recipientAllowlistSize: config.NOVA_RECIPIENT_ALLOWLIST?.length ?? 'unrestricted' },
   'worker started',
