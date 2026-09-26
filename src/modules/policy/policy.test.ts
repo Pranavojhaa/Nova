@@ -167,4 +167,62 @@ describe('evaluatePolicy', () => {
       reason: 'goal_not_open',
     });
   });
+
+  describe('recipient allowlist (dev and staging)', () => {
+    const ONLY_ME = new Set(['pranav@example.com']);
+
+    it('denies a pinned, envelope-covered recipient who is not allowlisted', () => {
+      expect(run({ recipientAllowlist: ONLY_ME })).toEqual({
+        decision: 'deny',
+        reason: 'recipient_not_allowlisted',
+      });
+    });
+
+    it('allows an allowlisted recipient, comparing case-insensitively', () => {
+      const mixed = 'Rahul@Example.com';
+      const env = envelope();
+      const permit = env.terms.permits[0];
+      if (!permit) throw new Error('fixture');
+      permit.recipients = [{ entityId: 'e-rahul', address: mixed }];
+      expect(
+        run({
+          input: { to: [mixed] },
+          goal: { open: true, participantAddresses: new Set([mixed]) },
+          envelope: env,
+          recipientAllowlist: new Set([RAHUL]),
+        }).decision,
+      ).toBe('allow');
+    });
+
+    it('applies to every risk class, including reads', () => {
+      const read: PolicyCapability = {
+        name: 'email.search',
+        risk: 'read',
+        externalTargets: () => [RAHUL],
+      };
+      expect(run({ capability: read, envelope: undefined, recipientAllowlist: ONLY_ME })).toEqual({
+        decision: 'deny',
+        reason: 'recipient_not_allowlisted',
+      });
+    });
+
+    it('reports recipient pinning first when both rules fail', () => {
+      expect(run({ input: { to: ['attacker@evil.com'] }, recipientAllowlist: ONLY_ME })).toEqual({
+        decision: 'deny',
+        reason: 'recipient_not_pinned',
+      });
+    });
+
+    it('does not affect actions with no external targets', () => {
+      const own: PolicyCapability = {
+        name: 'x.own',
+        risk: 'write_self',
+        externalTargets: () => [],
+      };
+      expect(run({ capability: own, envelope: undefined, recipientAllowlist: ONLY_ME })).toEqual({
+        decision: 'allow',
+        reason: 'own_resources',
+      });
+    });
+  });
 });

@@ -38,12 +38,18 @@ export interface PolicyInput {
   /** Uses already consumed per permit id by *other* actions. */
   permitUsage: ReadonlyMap<string, number>;
   now: Date;
+  /**
+   * Dev and staging only: the sole addresses any external target may be (lowercase).
+   * Undefined means no restriction (prod). Protects real people from pre-release builds.
+   */
+  recipientAllowlist?: ReadonlySet<string> | undefined;
 }
 
 export type PolicyReason =
   | 'goal_not_open'
   | 'destructive_not_authorizable'
   | 'recipient_not_pinned'
+  | 'recipient_not_allowlisted'
   | 'low_risk'
   | 'own_resources'
   | 'covered_by_envelope'
@@ -71,6 +77,11 @@ export function evaluatePolicy(p: PolicyInput): PolicyDecision {
   const targets = p.capability.externalTargets(p.input);
   if (targets.some((t) => !p.goal.participantAddresses.has(t))) {
     return { decision: 'deny', reason: 'recipient_not_pinned' };
+  }
+
+  const allowlist = p.recipientAllowlist;
+  if (allowlist && targets.some((t) => !allowlist.has(t.toLowerCase()))) {
+    return { decision: 'deny', reason: 'recipient_not_allowlisted' };
   }
 
   if (p.capability.risk === 'read' || p.capability.risk === 'draft')
