@@ -3,6 +3,10 @@
 # Migrations are forward-only and must stay compatible with the release still serving traffic.
 set -euo pipefail
 : "${GCP_PROJECT_ID:?}" "${GCP_REGION:?}" "${NOVA_ENV:?}" "${IMAGE:?}" "${SQL_CONNECTION:?}" "${RUNTIME_SA:?}"
+if [[ "$NOVA_ENV" != "prod" && -z "${NOVA_RECIPIENT_ALLOWLIST:-}" ]]; then
+  echo "NOVA_RECIPIENT_ALLOWLIST must be set for non-prod environments (NOVA_ENV=${NOVA_ENV}); refusing before touching GCP" >&2
+  exit 1
+fi
 WORKER_MIN="${WORKER_MIN_INSTANCES:-1}"
 
 COMMON=(--project "$GCP_PROJECT_ID" --region "$GCP_REGION" --quiet)

@@ -136,7 +136,9 @@ jobs:
           gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
           docker build --build-arg "NOVA_RELEASE=${SHA}" -t "${REGISTRY}/nova:${SHA}" .
           docker push "${REGISTRY}/nova:${SHA}"
-          echo "IMAGE=$(docker inspect --format '{{index .RepoDigests 0}}' "${REGISTRY}/nova:${SHA}")" >>"$GITHUB_ENV"
+          DIGEST_REF="$(docker inspect --format '{{index .RepoDigests 0}}' "${REGISTRY}/nova:${SHA}")"
+          [[ "$DIGEST_REF" == *@sha256:* ]] || { echo "unexpected digest reference: ${DIGEST_REF:-<empty>}"; exit 1; }
+          echo "IMAGE=${DIGEST_REF}" >>"$GITHUB_ENV"
       - name: Deploy
         id: deploy
         run: scripts/deploy.sh
@@ -147,6 +149,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Smoke test
-        run: pnpm smoke --api "${{ steps.deploy.outputs.api_url }}" --release "${SHA}"
+        env:
+          API_URL: ${{ steps.deploy.outputs.api_url }}
+        run: pnpm smoke --api "$API_URL" --release "${SHA}"
       - name: Mark digest verified (only verified digests can be promoted)
         run: gcloud artifacts docker tags add "${IMAGE}" "${REGISTRY}/nova:verified-${SHA}" --quiet

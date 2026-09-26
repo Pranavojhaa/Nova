@@ -7,8 +7,43 @@ on:
         description: Full commit SHA that passed staging (has a verified-<sha> image)
         required: true
 
+env:
+  SHA: ${{ inputs.sha }}
+
 jobs:
+  # Unprivileged: proves the promoted SHA is a real, merged commit and that the prod
+  # readiness checklist is fully checked at that SHA. Runs no GCP auth and holds no
+  # id-token, so an attacker who could get arbitrary code to run here (e.g. a crafted
+  # readiness doc, or a compromised dependency pulled by `pnpm install`) still cannot
+  # mint production deployer credentials.
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Validate input
+        run: |
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "sha must be a full 40-character commit SHA"; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+          fetch-depth: 0
+      - name: Refuse unless SHA is on main
+        run: |
+          git fetch origin main --quiet
+          git merge-base --is-ancestor "$SHA" origin/main || { echo "$SHA is not an ancestor of origin/main; refusing to promote"; exit 1; }
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Prod gate (docs/prod-readiness.md fully checked at this SHA)
+        run: pnpm readiness docs/prod-readiness.md
+
   promote:
+    needs: gate
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production
@@ -19,7 +54,6 @@ jobs:
       group: deploy-prod
       cancel-in-progress: false
     env:
-      SHA: ${{ inputs.sha }}
       GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       GCP_REGION: ${{ vars.GCP_REGION }}
       REGISTRY: ${{ vars.REGISTRY }}
@@ -29,20 +63,20 @@ jobs:
       WORKER_MIN_INSTANCES: ${{ vars.WORKER_MIN_INSTANCES }}
       NOVA_ENV: prod
     steps:
+      # This job holds id-token: write, so it re-proves the SHA is on main itself
+      # (never trusting `needs: gate` alone) before GCP auth or any dependency
+      # install runs repo-supplied code with that privilege in scope.
       - name: Validate input
         run: |
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "sha must be a full 40-character commit SHA"; exit 1; }
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.SHA }}
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Prod gate (docs/prod-readiness.md fully checked at this SHA)
-        run: pnpm readiness docs/prod-readiness.md
+          fetch-depth: 0
+      - name: Refuse unless SHA is on main
+        run: |
+          git fetch origin main --quiet
+          git merge-base --is-ancestor "$SHA" origin/main || { echo "$SHA is not an ancestor of origin/main; refusing to promote"; exit 1; }
       - uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.WIF_PROVIDER }}
@@ -62,5 +96,13 @@ jobs:
       - name: Deploy
         id: deploy
         run: scripts/deploy.sh
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - name: Smoke test
-        run: pnpm smoke --api "${{ steps.deploy.outputs.api_url }}" --release "${SHA}"
+        env:
+          API_URL: ${{ steps.deploy.outputs.api_url }}
+        run: pnpm smoke --api "$API_URL" --release "${SHA}"

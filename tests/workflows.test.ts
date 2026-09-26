@@ -55,7 +55,37 @@ describe('deploy workflows', () => {
   it('refuses to promote an image whose baked NOVA_RELEASE is not the promoted SHA, before deploying', () => {
     const check = promote.indexOf('NOVA_RELEASE=');
     const deploy = promote.indexOf('scripts/deploy.sh');
+    const describeDigest = promote.indexOf('images describe');
     expect(check).toBeGreaterThan(-1);
     expect(check).toBeLessThan(deploy);
+    expect(check).toBeGreaterThan(describeDigest);
+  });
+
+  it('isolates the prod-readiness gate from GCP credentials (no id-token, no environment)', () => {
+    const gateStart = promote.indexOf('\n  gate:');
+    const promoteStart = promote.indexOf('\n  promote:');
+    expect(gateStart).toBeGreaterThan(-1);
+    expect(promoteStart).toBeGreaterThan(gateStart);
+    const gateBlock = promote.slice(gateStart, promoteStart);
+    expect(gateBlock).not.toContain('id-token');
+    expect(gateBlock).not.toContain('environment:');
+  });
+
+  it('runs the prod readiness gate in the unprivileged gate job', () => {
+    const gateStart = promote.indexOf('\n  gate:');
+    const promoteStart = promote.indexOf('\n  promote:');
+    const gateBlock = promote.slice(gateStart, promoteStart);
+    expect(gateBlock).toContain('pnpm readiness');
+  });
+
+  it('re-verifies the promoted SHA is on main inside the privileged job, before any pnpm install or GCP auth', () => {
+    const promoteStart = promote.indexOf('\n  promote:');
+    const promoteBlock = promote.slice(promoteStart);
+    const mergeBaseAt = promoteBlock.indexOf('merge-base --is-ancestor');
+    const firstPnpmInstall = promoteBlock.indexOf('pnpm install');
+    const authAt = promoteBlock.indexOf('google-github-actions/auth');
+    expect(mergeBaseAt).toBeGreaterThan(-1);
+    expect(mergeBaseAt).toBeLessThan(firstPnpmInstall);
+    expect(mergeBaseAt).toBeLessThan(authAt);
   });
 });
