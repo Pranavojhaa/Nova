@@ -75,6 +75,23 @@ jobs:
       - name: Migrate, boot API and worker, smoke-test
         run: scripts/ci-image-smoke.sh nova:ci ${{ github.sha }}
 
+  infra:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: Terraform format
+        run: terraform -chdir=infra/terraform fmt -check -recursive
+      - name: Terraform validate (every environment)
+        run: |
+          for env in staging prod; do
+            terraform -chdir=infra/terraform/envs/$env init -backend=false -input=false
+            terraform -chdir=infra/terraform/envs/$env validate
+          done
+      - name: Shell scripts
+        run: shellcheck scripts/*.sh
+
   secrets:
     runs-on: ubuntu-latest
     steps:

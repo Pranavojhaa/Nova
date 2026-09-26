@@ -13,4 +13,11 @@ describe('ci workflow', () => {
     expect(ci).toMatch(/^ {2}image:/m);
     expect(ci).toContain('scripts/ci-image-smoke.sh');
   });
+
+  it('validates both Terraform environments and lints shell scripts', () => {
+    expect(ci).toMatch(/^ {2}infra:/m);
+    expect(ci).toContain('terraform -chdir=infra/terraform fmt -check -recursive');
+    expect(ci).toContain('for env in staging prod');
+    expect(ci).toContain('shellcheck scripts/*.sh');
+  });
 });
