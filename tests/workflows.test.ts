@@ -88,4 +88,28 @@ describe('deploy workflows', () => {
     expect(mergeBaseAt).toBeLessThan(firstPnpmInstall);
     expect(mergeBaseAt).toBeLessThan(authAt);
   });
+
+  it('checks ancestry against the fully-qualified remote ref, never the ambiguous "origin/main" (a fetched tag of the same name would shadow it)', () => {
+    const ancestorChecks = promote.match(/merge-base --is-ancestor "\$SHA" \S+/g) ?? [];
+    expect(ancestorChecks.length).toBe(2);
+    for (const check of ancestorChecks) {
+      expect(check).toContain('refs/remotes/origin/main');
+    }
+    expect(promote).not.toMatch(/is-ancestor "\$SHA" origin\/main(?!\S)/);
+  });
+
+  it('pins the promote job to run only after the gate job (never trusting a stale or skipped gate)', () => {
+    expect(promote).toContain('needs: gate');
+  });
+
+  it("runs the gate job's ancestor check before the gate job's own pnpm install", () => {
+    const gateStart = promote.indexOf('\n  gate:');
+    const promoteStart = promote.indexOf('\n  promote:');
+    const gateBlock = promote.slice(gateStart, promoteStart);
+    const mergeBaseAt = gateBlock.indexOf('merge-base --is-ancestor');
+    const pnpmInstallAt = gateBlock.indexOf('pnpm install');
+    expect(mergeBaseAt).toBeGreaterThan(-1);
+    expect(pnpmInstallAt).toBeGreaterThan(-1);
+    expect(mergeBaseAt).toBeLessThan(pnpmInstallAt);
+  });
 });
