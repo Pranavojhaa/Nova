@@ -18,7 +18,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/entrypoints/migrate.ts",
     "db:check-drift": "drizzle-kit generate && git diff --exit-code -- drizzle && test -z \"\"",
-    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test"
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test",
+    "smoke": "tsx scripts/smoke.ts",
+    "readiness": "tsx scripts/readiness.ts"
   },
   "packageManager": "pnpm@10.33.0",
   "dependencies": {
